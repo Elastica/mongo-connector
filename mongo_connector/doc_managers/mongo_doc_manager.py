@@ -70,11 +70,14 @@ class DocManager(DocManagerBase):
             'meta_collection_cap_size',
             constants.DEFAULT_META_COLLECTION_CAP_SIZE)
 
+        # The '_id' field has to be unique, so if we will be writing data from
+        # different namespaces into single collection, we use a different field
+        # for storing the document id.
         self.id_field = 'doc_id' if self.use_single_meta_collection else '_id'
         self.meta_database = self.mongo["__mongo_connector"]
 
-        """ create the meta collection as capped if a single meta collection
-            is preferred """
+        # Create the meta collection as capped if a single meta collection is
+        # preferred
         if self.use_single_meta_collection:
             if (self.meta_collection_name not in
                     self.meta_database.collection_names()):
@@ -84,7 +87,8 @@ class DocManager(DocManagerBase):
                     size=self.meta_collection_cap_size)
                 meta_collection = self.meta_database[self.meta_collection_name]
                 meta_collection.ensure_index(self.id_field)
-                meta_collection.ensure_index([('ns', 1), ('_ts', 1)])
+                meta_collection.ensure_index([('ns', 1), ('_ts', 1), ('deleted', 1)])
+                meta_collection.ensure_index([('ns', 1), ('deleted', 1)])
 
     def _db_and_collection(self, namespace):
         return namespace.split('.', 1)
@@ -163,7 +167,8 @@ class DocManager(DocManagerBase):
         self.meta_database[meta_collection_name].save({
             self.id_field: document_id,
             "_ts": timestamp,
-            "ns": namespace
+            "ns": namespace,
+            "deleted": False,
         })
 
         updated = self.mongo[db][coll].find_and_modify(
@@ -184,7 +189,8 @@ class DocManager(DocManagerBase):
         self.meta_database[meta_collection_name].save({
             self.id_field: doc['_id'],
             "_ts": timestamp,
-            "ns": namespace
+            "ns": namespace,
+            "deleted": False
         })
         self.mongo[database][coll].save(doc)
 
@@ -208,7 +214,8 @@ class DocManager(DocManagerBase):
                         bulk_meta.find(meta_selector).upsert().replace_one({
                             self.id_field: doc['_id'],
                             'ns': namespace,
-                            '_ts': timestamp
+                            '_ts': timestamp,
+                            'deleted': False
                         })
                     except StopIteration:
                         more_chunks = False
@@ -238,7 +245,8 @@ class DocManager(DocManagerBase):
         meta_collection = self._get_meta_collection(namespace)
 
         doc2 = self.meta_database[meta_collection].find_and_modify(
-            {self.id_field: document_id}, remove=True)
+                 {self.id_field: document_id}, update={'deleted':True})
+
         if (doc2 and doc2.get('gridfs_id')):
             GridFS(self.mongo[database], coll).delete(doc2['gridfs_id'])
         else:
@@ -256,7 +264,8 @@ class DocManager(DocManagerBase):
             self.id_field: f._id,
             '_ts': timestamp,
             'ns': namespace,
-            'gridfs_id': id
+            'gridfs_id': id,
+            'deleted': False
         })
 
     @wrap_exceptions
@@ -268,7 +277,8 @@ class DocManager(DocManagerBase):
             for ts_ns_doc in self.meta_database[meta_collection_name].find(
                 {'ns': namespace,
                  '_ts': {'$lte': end_ts,
-                         '$gte': start_ts}}
+                         '$gte': start_ts},
+                 'deleted': False}
             ):
                 yield ts_ns_doc
 
@@ -285,7 +295,7 @@ class DocManager(DocManagerBase):
             for namespace in self._namespaces():
                 meta_collection = self._get_meta_collection(namespace)
                 mc_coll = self.meta_database[meta_collection]
-                mc_cursor = mc_coll.find({'ns': namespace}, limit=1)
+                mc_cursor = mc_coll.find({'ns': namespace, 'deleted' : False}, limit=1)
                 for ts_ns_doc in mc_cursor.sort('_ts', -1):
                     yield ts_ns_doc
 
