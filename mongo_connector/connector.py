@@ -156,12 +156,14 @@ class Connector(threading.Thread):
             fields=config['fields'],
             ns_set=config['namespaces.include'],
             dest_mapping=config['namespaces.mapping'],
+            ns_exclude=config['namespaces.exclude'],
             gridfs_set=config['namespaces.gridfs'],
             ssl_certfile=config['ssl.sslCertfile'],
             ssl_keyfile=config['ssl.sslKeyfile'],
             ssl_ca_certs=config['ssl.sslCACerts'],
             ssl_cert_reqs=config['ssl.sslCertificatePolicy'],
-            tz_aware=config['timezoneAware']
+            tz_aware=config['timezoneAware'],
+            skip_count=config['skipCount']
         )
         return connector
 
@@ -676,6 +678,9 @@ def get_config_options():
         if cli_values['ns_set']:
             option.value['include'] = cli_values['ns_set'].split(',')
 
+        if cli_values['ns_exclude']:
+            option.value['exclude'] = cli_values['exclude'].split(',')
+
         if cli_values['gridfs_set']:
             option.value['gridfs'] = cli_values['gridfs_set'].split(',')
 
@@ -693,6 +698,11 @@ def get_config_options():
             raise errors.InvalidConfiguration(
                 "Namespace set should not contain any duplicates.")
 
+        ns_exclude = option.value['exclude']
+        if len(ns_exclude) != len(set(ns_exclude)):
+            raise errors.InvalidConfiguration(
+                "Namespace set should not contain any duplicates.")
+
         dest_mapping = option.value['mapping']
         if len(dest_mapping) != len(set(dest_mapping.values())):
             raise errors.InvalidConfiguration(
@@ -706,6 +716,7 @@ def get_config_options():
 
     default_namespaces = {
         "include": [],
+        "exclude": [],
         "mapping": {},
         "gridfs": []
     }
@@ -747,6 +758,19 @@ def get_config_options():
         "consider. For example, if your metadata is stored in "
         "test.fs.files and chunks are stored in test.fs.chunks, "
         "you can use `--gridfs-set test.fs`.")
+
+    # -e is to specify the namespaces we want to exclude. The default
+    # considers all the namespaces
+    namespaces.add_cli(
+        "-e", "--namespace-exclude", dest="ns_exclude", help=
+        "Used to specify the namespaces we want to "
+        "exclude. For example, if we wanted to exclude all "
+        "collections containing celery in namespace "
+        "namespaces, we could use `-e celery`. "
+        "The default is to consider all the namespaces, "
+        "excluding the system and config databases, and "
+        "also ignoring the \"system.indexes\" collection in "
+        "any database.")
 
     def apply_doc_managers(option, cli_values):
         if cli_values['doc_manager'] is None:
@@ -790,6 +814,8 @@ def get_config_options():
                 dm['args'] = {}
             if not dm.get('bulkSize'):
                 dm['bulkSize'] = constants.DEFAULT_MAX_BULK
+            if not dm.get('useSingleMetaCollection'):
+                dm['useSingleMetaCollection'] = False
 
             aci = dm['autoCommitInterval']
             if aci is not None and aci < 0:
@@ -821,7 +847,8 @@ def get_config_options():
             kwargs = {
                 'unique_key': dm['uniqueKey'],
                 'auto_commit_interval': dm['autoCommitInterval'],
-                'chunk_size': dm['bulkSize']
+                'chunk_size': dm['bulkSize'],
+                'use_single_meta_collection': dm['useSingleMetaCollection']
             }
             for k in dm['args']:
                 if k not in kwargs:
@@ -975,6 +1002,18 @@ def get_config_options():
         "-c", "--config-file", dest="config_file", help=
         "Specify a JSON file to load configurations from. You can find"
         " an example config file at mongo-connector/config.json")
+
+    skip_count = add_option(
+        config_key="skipCount",
+        default=False,
+        type=bool)
+ 
+    skip_count.add_cli(
+         "--skip-count", dest="skip_count",
+         help="Skip logging the count of operations found in"
+              " the oplog cursor. This count is only calculated"
+              " when a cursor is created, but is potentially very"
+              " expensive and slow.")
 
     tz_aware = add_option(
         config_key="timezoneAware", default=False, type=bool)
