@@ -848,7 +848,8 @@ def get_config_options():
                 'unique_key': dm['uniqueKey'],
                 'auto_commit_interval': dm['autoCommitInterval'],
                 'chunk_size': dm['bulkSize'],
-                'use_single_meta_collection': dm['useSingleMetaCollection']
+                'use_single_meta_collection': dm['useSingleMetaCollection'],
+                'meta_collection_name': dm['metaCollectionName']
             }
             for k in dm['args']:
                 if k not in kwargs:

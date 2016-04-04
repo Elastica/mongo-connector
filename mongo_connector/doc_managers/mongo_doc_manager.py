@@ -164,12 +164,13 @@ class DocManager(DocManagerBase):
 
         meta_collection_name = self._get_meta_collection(namespace)
 
-        self.meta_database[meta_collection_name].save({
-            self.id_field: document_id,
-            "_ts": timestamp,
-            "ns": namespace,
-            "deleted": False,
-        })
+        self.meta_database[meta_collection_name].find_and_modify(
+            {self.id_field: document_id, "ns": namespace},
+            {self.id_field: document_id,
+             "_ts": timestamp,
+             "ns": namespace,
+             "deleted": False}
+        )
 
         updated = self.mongo[db][coll].find_and_modify(
             {'_id': document_id},
@@ -186,12 +187,14 @@ class DocManager(DocManagerBase):
 
         meta_collection_name = self._get_meta_collection(namespace)
 
-        self.meta_database[meta_collection_name].save({
-            self.id_field: doc['_id'],
-            "_ts": timestamp,
-            "ns": namespace,
-            "deleted": False
-        })
+        self.meta_database[meta_collection_name].find_and_modify(
+            {self.id_field: doc['_id'], "ns": namespace},
+            {self.id_field: doc['_id'],
+             "_ts": timestamp,
+             "ns": namespace,
+             "deleted": False},
+            upsert=True
+        )
         self.mongo[database][coll].save(doc)
 
     @wrap_exceptions
@@ -210,7 +213,7 @@ class DocManager(DocManagerBase):
                         doc = next(docs)
                         selector = {'_id': doc['_id']}
                         bulk.find(selector).upsert().replace_one(doc)
-                        meta_selector = {self.id_field: doc['_id']}
+                        meta_selector = {self.id_field: doc['_id'],'ns':namespace}
                         bulk_meta.find(meta_selector).upsert().replace_one({
                             self.id_field: doc['_id'],
                             'ns': namespace,
@@ -245,7 +248,7 @@ class DocManager(DocManagerBase):
         meta_collection = self._get_meta_collection(namespace)
 
         doc2 = self.meta_database[meta_collection].find_and_modify(
-                 {self.id_field: document_id}, update={'deleted':True})
+                 {self.id_field: document_id, "ns": namespace}, update={'$set':{'deleted':True}})
 
         if (doc2 and doc2.get('gridfs_id')):
             GridFS(self.mongo[database], coll).delete(doc2['gridfs_id'])
@@ -260,13 +263,15 @@ class DocManager(DocManagerBase):
 
         meta_collection = self._get_meta_collection(namespace)
 
-        self.meta_database[meta_collection].save({
-            self.id_field: f._id,
-            '_ts': timestamp,
-            'ns': namespace,
-            'gridfs_id': id,
-            'deleted': False
-        })
+        self.meta_database[meta_collection_name].find_and_modify(
+            {self.id_field: f._id, "ns": namespace},
+            {self.id_field: f._id,
+             "_ts": timestamp,
+             "ns": namespace,
+             "gridfs_id": id,
+             "deleted": False},
+            upsert=True
+        )
 
     @wrap_exceptions
     def search(self, start_ts, end_ts):
