@@ -299,8 +299,7 @@ class OplogThread(threading.Thread):
                         LOG.info("OplogThread: Synced up to %s" % last_ts.as_datetime())
 
                         # update timestamp per batch size
-                        # n % -1 (default for self.batch_size) == 0 for all n
-                        if n % self.batch_size == 1 and last_ts is not None:
+                        if n % self.batch_size == 0 and last_ts is not None:
                             self.checkpoint = last_ts
                             self.update_checkpoint()
 
