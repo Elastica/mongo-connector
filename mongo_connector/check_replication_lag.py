@@ -87,18 +87,26 @@ class ReplicationLagChecker(object):
             target_collection = 'oplog' + self._replica_set
 
             while True:
+                # Induce an operation on the replication test database
+                db_name = 'ReplTest_' + self._replica_set.upper()
+                source_conn[db_name]['operation'].replace_one({'replica':self._replica_set},{'replica':self._replica_set,'ts':int(time.time())},upsert=True)
+
+                # Wait a bit for it to replicate
+                time.sleep(10)
+
                 # check latest oplog of source
                 entry = source_conn['local'][
                     'oplog.rs'].find().sort('$natural', -1).limit(1)
-                source_oplog = bson_ts_to_long(entry[0]['ts'])
+                # get the time in seconds
+                source_oplog = entry[0]['ts'].time
 
                 # get latest oplog from connector target oplog collection
                 entry = target_conn['__mongo_connector'][
-                    target_collection].find().sort('$natural', -1).limit(1)
-                target_oplog = bson_ts_to_long(entry[0]['ts'])
+                    target_collection].find().sort('_ts', -1).limit(1)
+                # get the time in secs from bson long
+                target_oplog = entry[0]['_ts'] >> 32
 
                 lag = source_oplog - target_oplog
-                print 'Lag for %s is %d' % (self._lag_key, lag)
                 self._stat_client.gauge(self._lag_key, lag)
 
                 time.sleep(self._poll_interval)

@@ -27,6 +27,7 @@ import pymongo
 from gridfs import GridFS
 from mongo_connector import errors, constants
 from mongo_connector.util import exception_wrapper
+from pymongo.errors import CollectionInvalid
 from mongo_connector.doc_managers.doc_manager_base import DocManagerBase
 
 wrap_exceptions = exception_wrapper({
@@ -146,7 +147,10 @@ class DocManager(DocManagerBase):
             new_db, coll = self.command_helper.map_collection(
                 db, doc['create'])
             if new_db:
-                self.mongo[new_db].create_collection(coll)
+                try:
+                    self.mongo[new_db].create_collection(coll)
+                except CollectionInvalid:
+                    pass
 
         if doc.get('drop'):
             new_db, coll = self.command_helper.map_collection(
@@ -169,7 +173,8 @@ class DocManager(DocManagerBase):
             {self.id_field: document_id,
              "_ts": timestamp,
              "ns": namespace,
-             "deleted": False}
+             "deleted": False},
+             upsert=True
         )
 
         updated = self.mongo[db][coll].find_and_modify(
