@@ -6,6 +6,7 @@ output the difference (lag) in timestamp
 import traceback
 import time
 import argparse
+import logging
 # ------- core python imports
 # ------- package imports
 from pymongo.mongo_replica_set_client import MongoReplicaSetClient
@@ -78,6 +79,7 @@ class ReplicationLagChecker(object):
         return conn
 
     def run(self):
+
         """ Check the latest oplog from source oplog collection
             and the latest oplog from target mongo connector collection
             and compute the lag """
@@ -87,34 +89,43 @@ class ReplicationLagChecker(object):
             target_collection = 'oplog' + self._replica_set
 
             while True:
-                # Induce an operation on the replication test database
-                db_name = 'ReplTest_' + self._replica_set.upper()
-                source_conn[db_name]['operation'].replace_one({'replica':self._replica_set},{'replica':self._replica_set,'ts':int(time.time())},upsert=True)
+                try:
+                    # Induce an operation on the replication test database
+                    db_name = 'ReplTest_' + self._replica_set.upper()
+                    source_conn[db_name]['operation'].replace_one({'replica': self._replica_set}, {
+                                                                  'replica': self._replica_set, 'ts': int(time.time())}, upsert=True)
 
-                # Wait a bit for it to replicate
-                time.sleep(10)
+                    # Wait a bit for it to replicate
+                    time.sleep(10)
 
-                # check latest oplog of source
-                entry = source_conn['local'][
-                    'oplog.rs'].find().sort('$natural', -1).limit(1)
-                # get the time in seconds
-                source_oplog = entry[0]['ts'].time
+                    # check latest oplog of source
+                    entry = source_conn['local'][
+                        'oplog.rs'].find().sort('$natural', -1).limit(1)
+                    source_oplog = entry[0]['ts'].time
 
-                # get latest oplog from connector target oplog collection
-                entry = target_conn['__mongo_connector'][
-                    target_collection].find().sort('_ts', -1).limit(1)
-                # get the time in secs from bson long
-                target_oplog = entry[0]['_ts'] >> 32
+                    # get latest oplog from connector target oplog collection
+                    entry = target_conn['__mongo_connector'][
+                        target_collection].find().sort('_ts', -1).limit(1)
+                    target_oplog = entry[0]['_ts'] >> 32
 
-                lag = source_oplog - target_oplog
-                self._stat_client.gauge(self._lag_key, lag)
+                    lag = source_oplog - target_oplog
+                    self._stat_client.gauge(self._lag_key, lag)
 
-                time.sleep(self._poll_interval)
+                    time.sleep(self._poll_interval)
+                except Exception as ex:
+                    logger.exception('Connection Failed, retrying..')
+                    time.sleep(5)
+
         except Exception as ex:
-            print 'Exception: ', ex
-            print traceback.format_exc()
+            logger.exception('Critical Error, bailing out..')
 
 if __name__ == '__main__':
     PARSER_ARGS = PARSER.parse_args()
+    FORMAT = '%(asctime)-15s %(message)s'
+    SUFFIX = PARSER_ARGS.replica_set+'_'+PARSER_ARGS.region
+    LOG_FILENAME = '/var/log/mongo-connector/check_replication_lag_'+SUFFIX
+    logging.basicConfig(format=FORMAT,filename=LOG_FILENAME)
+
+    logger = logging.getLogger('check_replication_lag')
     LAG_CHECKER = ReplicationLagChecker(PARSER_ARGS)
     LAG_CHECKER.run()
